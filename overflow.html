@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    :root {
+    --defaultCellColor: #1b1b1b;
+    --cellBorder: #6a6a6a;
+
+    --cellFillSelected: #2f5f8a;
+    --cellFillHover: var(--cellBorder)
+
+    --inputAccent: #ff8c2f;
+
+    --inputTextBoxColor: #d8d8d8;
+    --textBackgroundColor: #2a2a2a;
+
+    --font: Consolas, "Courier New", monospace;
+    }
+
+    /* ================================================= */
+    /* Table Container                                   */
+    /* ================================================= */
+
+    #table-container {
+        padding: 10px;
+        background: #111;
+        overflow: auto;
+        width: fit-content;
+        max-width: 100%;
+    }
+
+    /* ================================================= */
+    /* Table Grid                                        */
+    /* ================================================= */
+
+    .table {
+        display: grid;
+        /* grid-template-columns supplied by JS */
+        gap: 1px;
+        background: var(--cellBorder);
+        width: fit-content;
+        padding: 1px;
+        box-sizing: border-box;
+    }
+
+    /* ================================================= */
+    /* Header Cells                                      */
+    /* ================================================= */
+
+    .header-cell {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 24px;
+        padding: 0 6px;
+        background: #252525;
+        color: var(--inputTextBoxColor);
+        font-family: var(--font);
+        font-size: 13px;
+        font-weight: bold;
+        box-sizing: border-box;
+        user-select: none;
+        cursor: pointer;
+        overflow: hidden;
+    }
+
+    .header-cell:hover {
+        background: var(--cellFillHover);
+    }
+
+    .header-cell-text {
+        flex: 1;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    .header-cell-tools {
+        width: 16px;
+        flex-shrink: 0;
+    }
+
+    /* Column insertion indicator */
+
+    .header-cell-drop-target {
+        position: relative;
+    }
+
+    .header-cell-drop-target::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -2px;
+        width: 4px;
+        height: 100%;
+        background: white;
+        pointer-events: none;
+    }
+
+    /* ================================================= */
+    /* Body Cells                                        */
+    /* ================================================= */
+
+    .cell {
+        position: relative;
+        display: flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 6px;
+        background: var(--defaultCellColor);
+        color: var(--inputTextBoxColor);
+        font-family: var(--font);
+        font-size: 13px;
+        box-sizing: border-box;
+        user-select: none;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        transition: background-color 0.1s ease;
+    }
+
+    .cell:hover {
+        background: var(--cellFillHover);
+    }
+
+    /* ================================================= */
+    /* Selected Cell                                     */
+    /* ================================================= */
+    .cell-selected {
+        background: var(--cellFillSelected);
+        font-weight: 500;
+        outline: 1px solid var(--inputAccent);
+    }
+    /* Keep hover from overriding selection */
+    .cell-selected:hover {
+        background: var(--cellFillSelected);
+    }
+
+    /* ================================================= */
+    /* Inline Cell Editor                                */
+    /* ================================================= */
+
+    .cell > .cell-textInput {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        padding: 0 6px;
+        border: none;
+        outline: none;
+        box-sizing: border-box;
+        background: var(--textBackgroundColor);
+        color: var(--inputTextBoxColor);
+        font-family: var(--font);
+        font-size: 13px;
+    }
+    .cell-editing > .cell-textInput {
+        box-shadow: inset 0 -3px 0 var(--inputAccent);
+    }
+
+    /* Optional editing state */
+
+    .cell-editing {
+        background: var(--textBackgroundColor);
+    }
+
+</style>
+</head>
+<body>
+    <div id="table-container"></div>
+    <script>
+        // Special Types
+        class TableCoord {
+            constructor(row, col){
+                this.row = row;
+                this.col = col;
+            }
+            /** 
+             * @param {TableCoord} otherCell
+             * @return {boolean} */
+            equals(otherCell){return this.row === other.row && this.col === other.col;}
+            /** 
+             * @return {str} */
+            getKey(){return `${this.row},${this.col}`;}
+            /**
+            * @param {string} key
+            * @returns {TableCoord} */
+            static fromKey(key) {
+                const [row, col] = key.split(",").map(Number);
+                return new TableCoord(row, col);
+            }
+        }
+        /**
+        * @typedef {Object} ContainerCoord
+        * @property {number} x
+        * @property {number} y */
+        // Special Types
+
+        // Utills
+        class TableUtils {
+            /** 
+             * @param {MouseEvent} event
+             * @return {TableCoord | null} */
+            static getCellAtMouse(event){
+                const cell = event.target.closest(".cell");
+                if (!cell) {return null};
+                return TableCoord.fromKey(cell.dataset.key);
+            }
+            /** 
+             * @param {MouseEvent} event
+             * @param {HTMLElement | null} element
+             * @return {ContainerCoord | null} */
+            static getMouseContainerCoord(event, element){
+                if(!element){return null;}
+                /** @type {DOMRect} */ const rect = element.getBoundingClientRect();
+                return {
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top
+                };
+            }
+            /** 
+             * @param {ContainerCoord} position
+             * @param {HTMLElement | null} tableContainer
+             * @return {ContainerCoord | null} */
+            static getCellAtContainerCoord(position, tableContainer) {
+                throw new Error("TableUtils.getCellAtContainerCoord() not implemented yet.");
+            } 
+        }
+        // Utills
+        
+        // Table Models 
+        class ColumnModel {
+                static DEFAULT_WIDTH = 100;
+                constructor(width, headerString) {
+                    this.width = width;
+                    this.name = headerString;
+                    // column state info
+                }
+            }
+        class TableModel { 
+            static EMPTY = null; 
+            /**
+            * @param {string[]} headerValues
+            * @param {string[][]} bodyValues
+            * @param {string[][]} bodyFormulas */
+            constructor(headerValues, bodyValues, bodyFormulas) {
+                if (bodyValues.length !== bodyFormulas.length) {
+                    throw new Error(
+                        "bodyValues and bodyFormulas must contain the same number of rows."
+                    );
+                }
+
+                // Normalize Column length for headers and body columns 
+                let maxCols = headerValues.length;
+                for (const row of bodyValues) {maxCols = Math.max(maxCols, row.length);}
+                for (const row of bodyFormulas) {maxCols = Math.max(maxCols, row.length);}
+                // Normalize Headers
+                while (headerValues.length < maxCols) {headerValues.push(TableModel.EMPTY);}
+                // Normalize Values
+                for (const row of bodyValues) {
+                    while (row.length < maxCols) {row.push(TableModel.EMPTY);}
+                }
+                // Normalize formulas
+                for (const row of bodyFormulas) {
+                    while (row.length < maxCols) {row.push(TableModel.EMPTY);}
+                }
+
+                // class data
+                /** @type {ColumnModel[]} */ this.columns = headerValues.map(headerValue => new ColumnModel(ColumnModel.DEFAULT_WIDTH, headerValue));
+                /** @type {string[][]} */ this.bodyValues = bodyValues;
+                /** @type {string[][]} */ this.bodyFormulas = bodyFormulas;
+            }
+        }
+        // Table Models 
+
+        // Table Views
+        class HeaderCellView {
+            /**
+            * Creates a header cell view.
+            * @param {ColumnModel} columnModel
+            * @param {string|null} value */
+            constructor(columnModel, columnIndex) {
+
+                /** @type {ColumnModel} */  this.columnModel = columnModel;
+                /** @type {number} */  this.columnIndex = columnIndex;
+
+                /** @returns {string} */    
+                this.getHTML();
+            }
+            /** 
+             * @param {TableState} state
+             * @returns {string} */   
+            getHTML(state) {
+                return `
+                <div
+                    class="header-cell"
+                    data-column="${this.columnIndex}"
+                    style="width:${this.columnModel.width}px"
+                >
+                    <span class="header-cell-text">${this.columnModel.name ?? ""}</span>
+                    <span class="header-cell-tools"></span>
+                </div>
+                `;
+            }
+        }
+        class BodyCellView {
+            constructor(value, rowIndex, columnIndex) {
+                /** @type {string|null} */  this.value = value;
+                /** @type {TableCoord} */  this.cellPosition = new TableCoord(rowIndex, columnIndex)
+                /** @type {string} */  this.cellKey = this.cellPosition.getKey();
+            }
+            /** 
+             * @param {string} cellContent
+             * @param {TableState} state
+             * @returns {string} */  
+            getHTML(cellContent, state) {
+                return `
+                <div
+                    class="cell ${state.selectedCells.has(this.cellKey) ? "cell-selected" : ""}"
+                    data-key="${this.cellKey}"
+                >
+                    ${cellContent}
+                </div>
+                `;
+            }
+        }
+        class TableView {
+            constructor(tableContainerId) {
+                /** @type {HTMLElement|null} */ this.container = document.querySelector(`#${tableContainerId}`);
+                
+            }
+            /**@param {TableModel} model
+             * @param {TableState} state
+            */
+            render(model, state) {
+                if (!this.container) {throw new Error("TableView container not found.");}
+                const columnWidths = model.columns.map(col => `${col.width}px`).join(" ");
+                let html = `
+                <div
+                class="table"
+                style="grid-template-columns:${columnWidths};"
+                >
+                `;
+                // Headers
+                for (let col = 0; col < model.columns.length; col++) {
+                    html += new HeaderCellView(model.columns[col],col).getHTML(state);
+                }
+                // Body
+                for (let row = 0; row < model.bodyValues.length; row++) {
+                    for (let col = 0; col < model.columns.length; col++) {
+                        html += new BodyCellView(model.bodyValues[row][col], row, col).getHTML(model.bodyValues[row][col], state);
+                    }
+                }
+                html += "</div>";
+                this.container.innerHTML = html;
+            }
+        }
+        // Table Views
+
+        // Table COntroller
+        class TableState {
+            constructor() {
+                // Cells
+                /** @type {Set<string>} */
+                this.selectedCells = new Set();
+                /** @type {TableCoord|null} */
+                this.hoverCell = null;
+                /** @type {TableCoord|null} */
+                this.inputCell = null;
+                
+                // Modes
+                /** @type {boolean} */
+                this.multiSelectMode = false;
+            }
+        }
+        class Table {
+            /** @param {string} tableContainerId 
+            *   @param {TableModel[]} model */
+            constructor(tableContainerId, model) {
+                /** @type {TableModel}*/ this.model = model;
+                /** @type {TableView}*/ this.view = new TableView(tableContainerId);
+                /** @type {TableState}*/ this.state = new TableState();
+                
+                //Methods
+                this.render();
+                this.initializeEvents();
+            }
+            // Table Processes
+            render() {
+                this.view.render(this.model, this.state);
+            }
+            /**
+             * @param {TableCoord} cell */
+            onCellFocusIn(cell){
+
+            }
+            /**
+             * @param {TableCoord} cell */
+            onCellFocusOut(cell){
+
+            }
+            // Table Processes
+
+            // Table Event Controls
+            initializeEvents() {
+                if (!this.view.container) {
+                    throw new Error("Container not found.");
+                }
+                this.view.container.addEventListener("mousemove", this.onMouseMove.bind(this));
+                this.view.container.addEventListener("mousedown", this.onMouseDown.bind(this));
+                this.view.container.addEventListener("mouseup",   this.onMouseUp.bind(this));
+                this.view.container.addEventListener("keydown",   this.onKeyDown.bind(this));
+                this.view.container.addEventListener("keyup",     this.onKeyUp.bind(this));
+                this.view.container.addEventListener("dblclick",  this.onDoubleClick.bind(this));
+            }
+            /**
+             * @param {MouseEvent} event */
+            onMouseMove(event) {
+            }
+            
+            /**
+             * @param {MouseEvent} event */
+            onMouseDown(event) {
+                const cell =  TableUtils.getCellAtMouse(event);
+                if (!cell) {
+                    this.state.selectedCells.clear(); 
+                    return;
+                }
+                
+                if (this.multiSelectMode) {
+                    if (!this.state.selectedCells.has(cell.getKey())) {this.state.selectedCells.add(cell.getKey());}
+                } else 
+                {
+                    this.state.selectedCells = new Set([cell.getKey()]);
+                }
+                
+                console.log(this.state.selectedCells)
+                console.log(`clicked cell: {${cell.row},${cell.col}}`)
+                this.render();
+            }
+
+            /**
+             * @param {MouseEvent} event */
+            onMouseUp(event) {}
+            
+            /**
+             * @param {MouseEvent} event */
+            onDoubleClick(event) {
+                const cell = TableUtils.getCellAtMouse(event)
+                if (!cell) {return;}
+                this.state.inputCell = cell;
+                console.log(`Double Clicked cell: {${cell.row},${cell.col}}`)
+            }
+
+            /**
+             * @param {KeyboardEvent} event */
+            onKeyDown(event) {}
+
+            /**
+             * @param {KeyboardEvent} event */
+            onKeyUp(event) {}
+            // Table Event Controls
+        }
+        // Table COntroller
+
+        // TEST //
+        const rows = 30;
+        const cols = 10;
+
+        const bodyValues = [];
+        const bodyFormulas = [];
+        const headerValues = [];
+        for (let r = 0; r < rows; r++){
+            bodyValues[r] = [];
+            bodyFormulas[r] = [];
+            for (let c = 0; c < cols; c++){
+                bodyValues[r][c] = `[${r},${c}]`;
+                bodyFormulas[r][c] = null;
+                headerValues[c] = `Header ${c}`;
+            }
+        }
+
+        const table =
+            new Table(
+                "table-container",
+                new TableModel(
+                    headerValues,
+                    bodyValues,
+                    bodyFormulas
+                )
+            );
+
+        // TEST //
+    </script>
+</body>
+</html>
